@@ -154,7 +154,32 @@ def obtener_canciones_playlist(playlist_id):
     return canciones
 
 
-canciones = obtener_canciones_playlist(playlist_id)
+try:
+    canciones = obtener_canciones_playlist(playlist_id)
+
+except SpotifyException as e:
+
+    if e.http_status == 429:
+
+        retry_after = e.headers.get("Retry-After") if e.headers else None
+
+        if retry_after:
+            minutos_espera = round(int(retry_after) / 60)
+
+            st.error(
+                f"Spotify alcanzó temporalmente el límite de solicitudes. "
+                f"Intentá nuevamente en aproximadamente {minutos_espera} minutos."
+            )
+        else:
+            st.error(
+                "Spotify alcanzó temporalmente el límite de solicitudes. "
+                "Intentá nuevamente más tarde."
+            )
+
+        st.stop()
+
+    else:
+        raise
 
 
 st.write(
@@ -321,11 +346,36 @@ def obtener_canciones_bandas(bandas):
 
     for banda in bandas:
 
-        resultado = sp.search(
-            q=f"artist:{banda}",
-            type="track",
-            limit=3
-        )
+        try:
+            resultado = sp.search(
+                q=f"artist:{banda}",
+                type="track",
+                limit=3
+            )
+
+        except SpotifyException as e:
+
+            if e.http_status == 429:
+
+                retry_after = e.headers.get("Retry-After") if e.headers else None
+
+                if retry_after:
+                    minutos_espera = round(int(retry_after) / 60)
+
+                    st.error(
+                        f"Spotify alcanzó temporalmente el límite de solicitudes. "
+                        f"Intentá nuevamente en aproximadamente {minutos_espera} minutos."
+                    )
+                else:
+                    st.error(
+                        "Spotify alcanzó temporalmente el límite de solicitudes. "
+                        "Intentá nuevamente más tarde."
+                    )
+
+                st.stop()
+
+            else:
+                raise
 
         for track in resultado["tracks"]["items"]:
 
@@ -651,7 +701,32 @@ links_recomendaciones = {}
 
 for banda, puntos in afinidad.most_common(10):
 
-    artista_spotify = buscar_artista_spotify(banda)
+    try:
+        artista_spotify = buscar_artista_spotify(banda)
+
+    except SpotifyException as e:
+
+        if e.http_status == 429:
+
+            retry_after = e.headers.get("Retry-After") if e.headers else None
+
+            if retry_after:
+                minutos_espera = round(int(retry_after) / 60)
+
+                st.error(
+                    f"Spotify alcanzó temporalmente el límite de solicitudes. "
+                    f"Intentá nuevamente en aproximadamente {minutos_espera} minutos."
+                )
+            else:
+                st.error(
+                    "Spotify alcanzó temporalmente el límite de solicitudes. "
+                    "Intentá nuevamente más tarde."
+                )
+
+            st.stop()
+
+        else:
+            raise
 
     if artista_spotify is not None:
 
@@ -659,7 +734,6 @@ for banda, puntos in afinidad.most_common(10):
             imagenes_recomendaciones[banda] = artista_spotify["imagen"]
 
         links_recomendaciones[banda] = artista_spotify["link"]
-
 
 
 # ======================
