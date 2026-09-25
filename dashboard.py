@@ -13,6 +13,8 @@ from spotipy.cache_handler import CacheHandler
 import hashlib
 import hmac
 import secrets
+import json
+from streamlit_cookies_manager import EncryptedCookieManager
 
 
 load_dotenv()
@@ -21,13 +23,58 @@ CLIENT_ID = os.getenv("CLIENT_ID")
 CLIENT_SECRET = os.getenv("CLIENT_SECRET")
 LASTFM_API_KEY = os.getenv("LASTFM_API_KEY")
 
+COOKIES_PASSWORD = os.getenv("COOKIES_PASSWORD")
+
+
+cookies = EncryptedCookieManager(
+    prefix="spotify-dashboard/",
+    password=COOKIES_PASSWORD
+)
+
+if not cookies.ready():
+    st.stop()
+
 class StreamlitCacheHandler(CacheHandler):
 
+    def __init__(self, cookies):
+        self.cookies = cookies
+
     def get_cached_token(self):
-        return st.session_state.get("spotify_token")
+
+        # Primero buscar en la sesión actual
+        token_info = st.session_state.get("spotify_token")
+
+        if token_info:
+            return token_info
+
+        # Si hubo F5, recuperar el token desde la cookie cifrada
+        token_cookie = self.cookies.get("spotify_token")
+
+        if token_cookie:
+
+            try:
+                token_info = json.loads(token_cookie)
+
+                st.session_state["spotify_token"] = token_info
+
+                return token_info
+
+            except (json.JSONDecodeError, TypeError):
+                return None
+
+        return None
+
 
     def save_token_to_cache(self, token_info):
+
+        # Guardar en la sesión actual
         st.session_state["spotify_token"] = token_info
+
+        # Guardar también cifrado en el navegador
+        self.cookies["spotify_token"] = json.dumps(token_info)
+
+        self.cookies.save()
+
 
 REDIRECT_URI = os.getenv(
     "REDIRECT_URI",
@@ -72,7 +119,7 @@ def estado_oauth_valido(estado):
     )
 
 
-cache_handler = StreamlitCacheHandler()
+cache_handler = StreamlitCacheHandler(cookies)
 
 
 auth_manager = SpotifyOAuth(

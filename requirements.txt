@@ -4,3 +4,4 @@ pandas
 plotly
 requests
 python-dotenv
+streamlit-cookies-manager-v2
