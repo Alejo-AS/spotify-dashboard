@@ -3,7 +3,6 @@ import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 from collections import Counter
 import pandas as pd
-#import matplotlib.pyplot as plt
 import plotly.express as px
 import requests
 import os
@@ -15,6 +14,7 @@ import hmac
 import secrets
 import json
 from streamlit_cookies_manager import EncryptedCookieManager
+import time
 
 
 load_dotenv()
@@ -235,6 +235,27 @@ except SpotifyException as e:
     else:
         raise
 
+
+# ======================
+# CERRAR SESIÓN
+# ======================
+
+if st.sidebar.button("🚪 Desconectar Spotify"):
+
+    # Eliminar el token de la sesión actual
+    st.session_state.pop("spotify_token", None)
+
+    # Invalidar el token persistente
+    cookies["spotify_token"] = ""
+    cookies.save()
+
+    # Dar tiempo al navegador para actualizar la cookie
+    time.sleep(1)
+
+    # Limpiar posibles parámetros OAuth
+    st.query_params.clear()
+
+    st.rerun()
 
 st.title("🎧 Spotify Dashboard")
 
