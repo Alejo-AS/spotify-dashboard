@@ -9,6 +9,10 @@ import requests
 import os
 from dotenv import load_dotenv
 from spotipy.exceptions import SpotifyException
+from spotipy.cache_handler import CacheHandler
+import hashlib
+import hmac
+import secrets
 
 
 load_dotenv()
@@ -17,21 +21,138 @@ CLIENT_ID = os.getenv("CLIENT_ID")
 CLIENT_SECRET = os.getenv("CLIENT_SECRET")
 LASTFM_API_KEY = os.getenv("LASTFM_API_KEY")
 
+class StreamlitCacheHandler(CacheHandler):
+
+    def get_cached_token(self):
+        return st.session_state.get("spotify_token")
+
+    def save_token_to_cache(self, token_info):
+        st.session_state["spotify_token"] = token_info
+
+REDIRECT_URI = "http://127.0.0.1:8501/"
+
+SCOPE = [
+    "user-top-read",
+    "playlist-read-private",
+    "playlist-modify-private",
+    "playlist-modify-public"
+]
+
+def generar_estado_oauth():
+    nonce = secrets.token_urlsafe(24)
+
+    firma = hmac.new(
+        CLIENT_SECRET.encode(),
+        nonce.encode(),
+        hashlib.sha256
+    ).hexdigest()
+
+    return f"{nonce}.{firma}"
+
+
+def estado_oauth_valido(estado):
+
+    if not estado or "." not in estado:
+        return False
+
+    nonce, firma_recibida = estado.rsplit(".", 1)
+
+    firma_correcta = hmac.new(
+        CLIENT_SECRET.encode(),
+        nonce.encode(),
+        hashlib.sha256
+    ).hexdigest()
+
+    return hmac.compare_digest(
+        firma_recibida,
+        firma_correcta
+    )
+
+
+cache_handler = StreamlitCacheHandler()
+
+
+auth_manager = SpotifyOAuth(
+    client_id=CLIENT_ID,
+    client_secret=CLIENT_SECRET,
+    redirect_uri=REDIRECT_URI,
+    scope=SCOPE,
+    cache_handler=cache_handler,
+    show_dialog=False,
+    open_browser=False
+)
+
+
+# ======================
+# CALLBACK DE SPOTIFY
+# ======================
+
+if "error" in st.query_params:
+
+    st.error(
+        f"Spotify rechazó la autorización: "
+        f"{st.query_params['error']}"
+    )
+
+    st.stop()
+
+
+if "code" in st.query_params:
+
+    codigo = st.query_params["code"]
+    estado = st.query_params.get("state")
+
+    if not estado_oauth_valido(estado):
+
+        st.error(
+            "No se pudo validar el inicio de sesión de Spotify."
+        )
+
+        st.stop()
+
+    auth_manager.get_access_token(
+        code=codigo,
+        check_cache=False
+    )
+
+    st.query_params.clear()
+
+    st.rerun()
+
+
+# ======================
+# COMPROBAR AUTENTICACIÓN
+# ======================
+
+token_info = auth_manager.validate_token(
+    cache_handler.get_cached_token()
+)
+
+
+if token_info is None:
+
+    estado = generar_estado_oauth()
+
+    url_autorizacion = auth_manager.get_authorize_url(
+        state=estado
+    )
+
+    st.title("🎧 Spotify Dashboard")
+
+    st.write(
+        "Conectá tu cuenta de Spotify para utilizar el dashboard."
+    )
+
+    st.link_button(
+        "Conectar con Spotify",
+        url_autorizacion
+    )
+
+    st.stop()
+
 
 sp = spotipy.Spotify(
-    auth_manager=SpotifyOAuth(
-        client_id=CLIENT_ID,
-        client_secret=CLIENT_SECRET,
-        redirect_uri="http://127.0.0.1:8888/callback",
-        scope="""
-        user-top-read
-        playlist-read-private
-        playlist-modify-private
-        playlist-modify-public
-        """,
-        cache_path=".spotify_cache_nuevo",
-        show_dialog=False
-    ),
+    auth_manager=auth_manager,
     status_forcelist=(500, 502, 503, 504)
 )
 
