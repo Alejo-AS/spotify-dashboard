@@ -29,7 +29,10 @@ class StreamlitCacheHandler(CacheHandler):
     def save_token_to_cache(self, token_info):
         st.session_state["spotify_token"] = token_info
 
-REDIRECT_URI = "http://127.0.0.1:8501/"
+REDIRECT_URI = os.getenv(
+    "REDIRECT_URI",
+    "http://127.0.0.1:8501/"
+)
 
 SCOPE = [
     "user-top-read",
