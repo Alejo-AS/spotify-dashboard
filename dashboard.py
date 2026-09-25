@@ -379,9 +379,15 @@ def obtener_canciones_bandas(bandas):
 
         for track in resultado["tracks"]["items"]:
 
-            canciones_playlist.append(
-                track["uri"]
+            coincide_artista = any(
+                artista["name"].strip().casefold() == banda.strip().casefold()
+                for artista in track["artists"]
             )
+
+            if coincide_artista:
+                canciones_playlist.append(
+                    track["uri"]
+                )
 
     return canciones_playlist
 
