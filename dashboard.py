@@ -16,6 +16,12 @@ import json
 from streamlit_cookies_manager import EncryptedCookieManager
 import time
 
+st.set_page_config(
+    page_title="Spotify Dashboard",
+    page_icon="🎧",
+    layout="centered",
+    initial_sidebar_state="collapsed"
+)
 
 load_dotenv()
 
@@ -240,22 +246,29 @@ except SpotifyException as e:
 # CERRAR SESIÓN
 # ======================
 
-if st.sidebar.button("🚪 Desconectar Spotify"):
+# ======================
+# MENÚ DE CUENTA
+# ======================
 
-    # Eliminar el token de la sesión actual
-    st.session_state.pop("spotify_token", None)
+with st.popover("⚙️ Cuenta"):
 
-    # Invalidar el token persistente
-    cookies["spotify_token"] = ""
-    cookies.save()
+    st.write(f"Conectado como **{usuario['display_name']}**")
 
-    # Dar tiempo al navegador para actualizar la cookie
-    time.sleep(1)
+    if st.button(
+        "🚪 Desconectar Spotify",
+        key="desconectar_spotify"
+    ):
 
-    # Limpiar posibles parámetros OAuth
-    st.query_params.clear()
+        st.session_state.pop("spotify_token", None)
 
-    st.rerun()
+        cookies["spotify_token"] = ""
+        cookies.save()
+
+        time.sleep(1)
+
+        st.query_params.clear()
+
+        st.rerun()
 
 st.title("🎧 Spotify Dashboard")
 
