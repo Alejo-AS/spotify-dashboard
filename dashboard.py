@@ -8,6 +8,7 @@ import plotly.express as px
 import requests
 import os
 from dotenv import load_dotenv
+from spotipy.exceptions import SpotifyException
 
 
 load_dotenv()
@@ -30,16 +31,38 @@ sp = spotipy.Spotify(
         """,
         cache_path=".spotify_cache_nuevo",
         show_dialog=False
-    )
+    ),
+    status_forcelist=(500, 502, 503, 504)
 )
-
-#st.write(
-#    sp.auth_manager.get_cached_token()
-#)
 
 
 # Usuario
-usuario = sp.current_user()
+try:
+    usuario = sp.current_user()
+
+except SpotifyException as e:
+
+    if e.http_status == 429:
+
+        retry_after = e.headers.get("Retry-After")
+
+        if retry_after:
+            minutos_espera = round(int(retry_after) / 60)
+
+            st.error(
+                f"Spotify alcanzó temporalmente el límite de solicitudes. "
+                f"Intentá nuevamente en aproximadamente {minutos_espera} minutos."
+            )
+        else:
+            st.error(
+                "Spotify alcanzó temporalmente el límite de solicitudes. "
+                "Intentá nuevamente más tarde."
+            )
+
+        st.stop()
+
+    else:
+        raise
 
 
 st.title("🎧 Spotify Dashboard")
@@ -70,12 +93,23 @@ periodo = opciones[seleccion]
 # SELECCIÓN DE PLAYLIST
 # ======================
 
-playlists = sp.current_user_playlists()["items"]
+@st.cache_data(ttl=3600, show_spinner=False)
+def obtener_playlists(usuario_id):
+
+    resultado = sp.current_user_playlists()
+
+    return resultado["items"]
+
+
+playlists = obtener_playlists(
+    usuario["id"]
+)
 
 
 playlist_dict = {
     playlist["name"]: playlist["id"]
     for playlist in playlists
+    if playlist["owner"]["id"] == usuario["id"]
 }
 
 
@@ -84,15 +118,10 @@ seleccion_playlist = st.selectbox(
     playlist_dict.keys()
 )
 
-
 playlist_id = playlist_dict[seleccion_playlist]
 
 st.write("Playlist seleccionada:")
-#st.write(playlist_id)
-
-info_playlist = sp.playlist(playlist_id)
-
-st.write(info_playlist["name"])
+st.write(seleccion_playlist)
 
 # ======================
 # CANCIONES SEGÚN PLAYLIST
