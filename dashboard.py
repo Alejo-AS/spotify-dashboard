@@ -340,17 +340,57 @@ def crear_playlist_recomendaciones():
     return playlist["id"]
 
 
-def obtener_canciones_bandas(bandas):
+def calcular_cupos_bandas(bandas_con_afinidad, total_objetivo=50):
+
+    # Mínimo de 3 canciones por banda
+    cupos = {
+        banda: 3
+        for banda, puntos in bandas_con_afinidad
+    }
+
+    canciones_asignadas = sum(cupos.values())
+    restantes = total_objetivo - canciones_asignadas
+
+    # Repartir los lugares restantes según afinidad
+    while restantes > 0:
+
+        candidatos = [
+            (banda, puntos)
+            for banda, puntos in bandas_con_afinidad
+            if cupos[banda] < 10
+        ]
+
+        if not candidatos:
+            break
+
+        banda_elegida = max(
+            candidatos,
+            key=lambda x: x[1] / cupos[x[0]]
+        )[0]
+
+        cupos[banda_elegida] += 1
+        restantes -= 1
+
+    return cupos
+
+
+def obtener_canciones_bandas(bandas_con_afinidad):
 
     canciones_playlist = []
+    canciones_agregadas = set()
 
-    for banda in bandas:
+    cupos = calcular_cupos_bandas(
+        bandas_con_afinidad,
+        total_objetivo=50
+    )
+
+    for banda, puntos in bandas_con_afinidad:
 
         try:
             resultado = sp.search(
                 q=f"artist:{banda}",
                 type="track",
-                limit=3
+                limit=10
             )
 
         except SpotifyException as e:
@@ -377,6 +417,8 @@ def obtener_canciones_bandas(bandas):
             else:
                 raise
 
+        cantidad_banda = 0
+
         for track in resultado["tracks"]["items"]:
 
             coincide_artista = any(
@@ -384,13 +426,26 @@ def obtener_canciones_bandas(bandas):
                 for artista in track["artists"]
             )
 
-            if coincide_artista:
-                canciones_playlist.append(
-                    track["uri"]
-                )
+            if not coincide_artista:
+                continue
+
+            if track["uri"] in canciones_agregadas:
+                continue
+
+            canciones_playlist.append(
+                track["uri"]
+            )
+
+            canciones_agregadas.add(
+                track["uri"]
+            )
+
+            cantidad_banda += 1
+
+            if cantidad_banda >= cupos[banda]:
+                break
 
     return canciones_playlist
-
 
 # ======================
 # GÉNEROS MUSICALES
@@ -814,28 +869,21 @@ if st.button(
     key="crear_playlist"
 ):
 
-    bandas = [
-        banda
-        for banda, puntos in afinidad.most_common(10)
-    ]
-
+    bandas_con_afinidad = afinidad.most_common(10)
 
     playlist_id = crear_playlist_recomendaciones()
 
-
     tracks = obtener_canciones_bandas(
-        bandas
+        bandas_con_afinidad
     )
-
 
     sp.playlist_add_items(
         playlist_id,
         tracks
     )
 
-
     st.success(
-        "Playlist creada correctamente en Spotify 🎸"
+        f"Playlist creada correctamente con {len(tracks)} canciones 🎸"
     )
 
 
