@@ -98,28 +98,35 @@ st.write(info_playlist["name"])
 # CANCIONES SEGÚN PLAYLIST
 # ======================
 
-canciones = []
+@st.cache_data(ttl=3600, show_spinner="Cargando canciones de Spotify...")
+def obtener_canciones_playlist(playlist_id):
 
-resultado = sp.playlist_items(
-    playlist_id,
-    limit=100
-)
+    canciones = []
+
+    resultado = sp.playlist_items(
+        playlist_id,
+        limit=100
+    )
+
+    while resultado:
+
+        for elemento in resultado["items"]:
+
+            cancion = elemento.get("item")
+
+            if cancion is not None:
+                canciones.append(cancion)
+
+        if resultado["next"]:
+            resultado = sp.next(resultado)
+        else:
+            break
+
+    return canciones
 
 
-while resultado:
+canciones = obtener_canciones_playlist(playlist_id)
 
-    for elemento in resultado["items"]:
-
-        cancion = elemento.get("item")
-
-        if cancion is not None:
-            canciones.append(cancion)
-
-
-    if resultado["next"]:
-        resultado = sp.next(resultado)
-    else:
-        break
 
 st.write(
     "Canciones cargadas:",
@@ -169,7 +176,8 @@ top_artistas = [
 recomendaciones = []
 
 
-for artista in top_artistas:
+@st.cache_data(ttl=86400, show_spinner=False)
+def obtener_similares_lastfm(artista):
 
     parametros = {
         "method": "artist.getsimilar",
@@ -178,32 +186,40 @@ for artista in top_artistas:
         "format": "json"
     }
 
-
     respuesta = requests.get(
         "https://ws.audioscrobbler.com/2.0/",
-        params=parametros
+        params=parametros,
+        timeout=10
     )
 
+    respuesta.raise_for_status()
 
     datos = respuesta.json()
 
-
     if "similarartists" in datos:
+        return datos["similarartists"]["artist"][:10]
 
-        for banda in datos["similarartists"]["artist"][:10]:
+    return []
 
-            nombre = banda["name"]
 
-            # Evitar recomendar bandas que ya escuchás
-            if nombre not in artistas_existentes:
+for artista in top_artistas:
 
-                recomendaciones.append(
-                    {
-                        "banda": nombre,
-                        "origen": artista,
-                        "peso": ranking[artista]
-                    }
-                )
+    bandas_similares = obtener_similares_lastfm(artista)
+
+    for banda in bandas_similares:
+
+        nombre = banda["name"]
+
+        # Evitar recomendar bandas que ya escuchás
+        if nombre not in artistas_existentes:
+
+            recomendaciones.append(
+                {
+                    "banda": nombre,
+                    "origen": artista,
+                    "peso": ranking[artista]
+                }
+            )
 
 
 afinidad = Counter()
@@ -569,10 +585,8 @@ for columna, (album, cantidad) in zip(columnas, top_albumes):
 # OBTENER IMÁGENES DE BANDAS RECOMENDADAS
 # ======================
 
-imagenes_recomendaciones = {}
-links_recomendaciones = {}
-
-for banda, puntos in afinidad.most_common(10):
+@st.cache_data(ttl=86400, show_spinner=False)
+def buscar_artista_spotify(banda):
 
     resultado = sp.search(
         q=f"artist:{banda}",
@@ -580,22 +594,42 @@ for banda, puntos in afinidad.most_common(10):
         limit=10
     )
 
-
     artistas_encontrados = resultado["artists"]["items"]
-
 
     for artista in artistas_encontrados:
 
+        # Verificación exacta para evitar confundir artistas
         if artista["name"].lower() == banda.lower():
 
+            imagen = None
+
             if artista["images"]:
+                imagen = artista["images"][0]["url"]
 
-                imagenes_recomendaciones[banda] = artista["images"][0]["url"]
+            link = artista["external_urls"]["spotify"]
+
+            return {
+                "imagen": imagen,
+                "link": link
+            }
+
+    return None
 
 
-            links_recomendaciones[banda] = artista["external_urls"]["spotify"]
+imagenes_recomendaciones = {}
+links_recomendaciones = {}
 
-            break
+
+for banda, puntos in afinidad.most_common(10):
+
+    artista_spotify = buscar_artista_spotify(banda)
+
+    if artista_spotify is not None:
+
+        if artista_spotify["imagen"] is not None:
+            imagenes_recomendaciones[banda] = artista_spotify["imagen"]
+
+        links_recomendaciones[banda] = artista_spotify["link"]
 
 
 
