@@ -283,12 +283,13 @@ st.write(
 # ======================
 
 modo = st.radio(
-    "Modo de análisis",
+    "Sección",
     [
         "👤 Mi perfil musical",
         "📊 Analizar playlist"
     ],
-    horizontal=True
+    horizontal=True,
+    label_visibility="collapsed"
 )
 
 
