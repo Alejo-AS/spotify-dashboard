@@ -277,21 +277,280 @@ st.write(
 )
 
 
-# Selector de período
+# ======================
+# MODO DE ANÁLISIS
+# ======================
+
+modo = st.radio(
+    "Modo de análisis",
+    [
+        "👤 Mi perfil musical",
+        "📊 Analizar playlist"
+    ],
+    horizontal=True
+)
+
+
+# ======================
+# SELECTOR DE PERÍODO
+# ======================
+
 opciones = {
     "Últimas semanas": "short_term",
     "Últimos meses": "medium_term",
     "Histórico": "long_term"
 }
 
-
 seleccion = st.selectbox(
     "Periodo de análisis",
     opciones.keys()
 )
 
-
 periodo = opciones[seleccion]
+
+
+# ======================
+# PERFIL MUSICAL
+# ======================
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def obtener_top_artistas(usuario_id, periodo):
+
+    resultado = sp.current_user_top_artists(
+        limit=20,
+        time_range=periodo
+    )
+
+    return resultado["items"]
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def obtener_top_canciones(usuario_id, periodo):
+
+    resultado = sp.current_user_top_tracks(
+        limit=20,
+        time_range=periodo
+    )
+
+    return resultado["items"]
+
+
+if modo == "👤 Mi perfil musical":
+
+    st.header("👤 Mi perfil musical")
+
+    try:
+
+        top_artistas_perfil = obtener_top_artistas(
+            usuario["id"],
+            periodo
+        )
+
+        top_canciones_perfil = obtener_top_canciones(
+            usuario["id"],
+            periodo
+        )
+
+    except SpotifyException as e:
+
+        if e.http_status == 429:
+
+            retry_after = e.headers.get("Retry-After") if e.headers else None
+
+            if retry_after:
+                minutos_espera = round(int(retry_after) / 60)
+
+                st.error(
+                    f"Spotify alcanzó temporalmente el límite de solicitudes. "
+                    f"Intentá nuevamente en aproximadamente {minutos_espera} minutos."
+                )
+            else:
+                st.error(
+                    "Spotify alcanzó temporalmente el límite de solicitudes."
+                )
+
+            st.stop()
+
+        else:
+            raise
+
+
+    if not top_artistas_perfil or not top_canciones_perfil:
+
+        st.info(
+            "Spotify todavía no dispone de suficientes datos "
+            "para generar este análisis."
+        )
+
+        st.stop()
+
+
+    # ======================
+    # DÉCADAS
+    # ======================
+
+    decadas_perfil = []
+
+    for cancion in top_canciones_perfil:
+
+        fecha = cancion["album"].get("release_date")
+
+        if fecha:
+            año = int(fecha[:4])
+            decada = (año // 10) * 10
+
+            decadas_perfil.append(
+                f"{decada}s"
+            )
+
+
+    if decadas_perfil:
+
+        decada_principal = Counter(
+            decadas_perfil
+        ).most_common(1)[0][0]
+
+    else:
+
+        decada_principal = "Sin datos"
+
+
+    # ======================
+    # MÉTRICAS
+    # ======================
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        st.metric(
+            "🎤 Artista principal",
+            top_artistas_perfil[0]["name"]
+        )
+
+    with col2:
+        st.metric(
+            "🎵 Canción principal",
+            top_canciones_perfil[0]["name"]
+        )
+
+    with col3:
+        st.metric(
+            "🎸 Artistas analizados",
+            len(top_artistas_perfil)
+        )
+
+    with col4:
+        st.metric(
+            "📅 Década predominante",
+            decada_principal
+        )
+
+
+    # ======================
+    # TOP ARTISTAS
+    # ======================
+
+    st.subheader("🎤 Tus artistas principales")
+
+    columnas = st.columns(5)
+
+    for columna, artista in zip(
+        columnas,
+        top_artistas_perfil[:5]
+    ):
+
+        with columna:
+
+            if artista["images"]:
+                st.image(
+                    artista["images"][0]["url"],
+                    width=130
+                )
+
+            st.write(
+                f"**{artista['name']}**"
+            )
+
+
+    tabla_artistas = []
+
+    for posicion, artista in enumerate(
+        top_artistas_perfil,
+        start=1
+    ):
+
+        tabla_artistas.append({
+            "Posición": posicion,
+            "Artista": artista["name"]
+        })
+
+
+    st.dataframe(
+        pd.DataFrame(tabla_artistas),
+        hide_index=True
+    )
+
+
+    # ======================
+    # TOP CANCIONES
+    # ======================
+
+    st.subheader("🎵 Tus canciones principales")
+
+    tabla_canciones = []
+
+    for posicion, cancion in enumerate(
+        top_canciones_perfil,
+        start=1
+    ):
+
+        tabla_canciones.append({
+            "Posición": posicion,
+            "Canción": cancion["name"],
+            "Artista": cancion["artists"][0]["name"],
+            "Álbum": cancion["album"]["name"]
+        })
+
+
+    st.dataframe(
+        pd.DataFrame(tabla_canciones),
+        hide_index=True
+    )
+
+
+    # ======================
+    # DISTRIBUCIÓN POR DÉCADA
+    # ======================
+
+    st.subheader("📅 Décadas de tus canciones principales")
+
+    df_decadas_perfil = pd.DataFrame(
+        Counter(decadas_perfil).items(),
+        columns=["Década", "Cantidad"]
+    )
+
+    if not df_decadas_perfil.empty:
+
+        df_decadas_perfil = df_decadas_perfil.sort_values(
+            "Década"
+        )
+
+        fig_decadas_perfil = px.bar(
+            df_decadas_perfil,
+            x="Década",
+            y="Cantidad",
+            text="Cantidad",
+            title="Distribución por década"
+        )
+
+        st.plotly_chart(
+            fig_decadas_perfil,
+            use_container_width=True
+        )
+
+
+    # Evita ejecutar abajo el análisis de playlists
+    st.stop()
 
 
 # ======================
