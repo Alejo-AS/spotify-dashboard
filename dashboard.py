@@ -16,6 +16,7 @@ import json
 from streamlit_cookies_manager import EncryptedCookieManager
 import time
 import unicodedata
+import streamlit.components.v1 as components
 
 st.set_page_config(
     page_title="Spotify Dashboard",
@@ -536,6 +537,38 @@ def buscar_artista_spotify(banda, mbid=""):
     # resolverlo, preferimos no adivinar.
     return None
 
+@st.cache_data(ttl=86400, show_spinner=False)
+def buscar_cancion_representativa_spotify(
+    artista_id,
+    nombre_artista
+):
+
+    resultado = sp.search(
+        q=f'artist:"{nombre_artista}"',
+        type="track",
+        limit=10
+    )
+
+    for track in resultado["tracks"]["items"]:
+
+        # Comprobamos el ID real del artista para
+        # evitar canciones de artistas homónimos.
+        coincide_artista = any(
+            artista["id"] == artista_id
+            for artista in track["artists"]
+        )
+
+        if not coincide_artista:
+            continue
+
+        return {
+            "id": track["id"],
+            "nombre": track["name"],
+            "link": track["external_urls"]["spotify"]
+        }
+
+    return None
+
 
 if modo == "👤 Mi perfil musical":
 
@@ -957,6 +990,8 @@ if modo == "👤 Mi perfil musical":
 
             columnas = st.columns(5)
 
+            reproductor_fila = None
+
             for columna, recomendacion in zip(
                 columnas,
                 grupo
@@ -990,6 +1025,35 @@ if modo == "👤 Mi perfil musical":
                         porcentaje / 100
                     )
 
+                    # ======================
+                    # ESCUCHAR CANCIÓN
+                    # ======================
+
+                    if artista_spotify is not None:
+
+                        cancion_preview = buscar_cancion_representativa_spotify(
+                            artista_spotify["id"],
+                            banda
+                        )
+
+                        if cancion_preview is not None:
+
+                            st.caption(
+                                f"🎵 {cancion_preview['nombre']}"
+                            )
+
+                            mostrar_reproductor = st.toggle(
+                                "▶ Escuchar",
+                                key=(
+                                    f"escuchar_perfil_"
+                                    f"{artista_spotify['id']}"
+                                )
+                            )
+
+                            if mostrar_reproductor:
+                                reproductor_fila = cancion_preview
+
+
                     if artista_spotify is not None:
 
                         st.link_button(
@@ -1010,6 +1074,23 @@ if modo == "👤 Mi perfil musical":
                         st.write(
                             f"• {origen}"
                         )
+
+            # ======================
+            # REPRODUCTOR DE LA FILA
+            # ======================
+
+            if reproductor_fila is not None:
+
+                st.write(
+                    f"🎵 **{reproductor_fila['nombre']}**"
+                )
+
+                components.iframe(
+                    f"https://open.spotify.com/embed/track/"
+                    f"{reproductor_fila['id']}",
+                    height=152,
+                    scrolling=False
+                )
 
     else:
 
@@ -1835,59 +1916,158 @@ for banda, puntos in afinidad.most_common(10):
 
 st.subheader("🎸 Bandas recomendadas para vos")
 
+top_recomendaciones = afinidad.most_common(10)
 
-columnas = st.columns(5)
 
-
-for columna, (banda, puntos) in zip(
-    columnas,
-    afinidad.most_common(10)
+# Mostrar 5 recomendaciones por fila
+for inicio in range(
+    0,
+    len(top_recomendaciones),
+    5
 ):
 
-    with columna:
+    grupo = top_recomendaciones[
+        inicio:inicio + 5
+    ]
 
-        if banda in imagenes_recomendaciones:
+    columnas = st.columns(5)
 
-            st.image(
-                imagenes_recomendaciones[banda],
-                width=130
+    reproductor_fila = None
+
+
+    for columna, (banda, puntos) in zip(
+        columnas,
+        grupo
+    ):
+
+        with columna:
+
+            # ======================
+            # ARTISTA EN SPOTIFY
+            # ======================
+
+            artista_spotify = buscar_artista_spotify(
+                banda,
+                mbid_por_banda_playlist.get(
+                    banda,
+                    ""
+                )
             )
 
 
-        st.write(
-            f"**{banda}**"
-        )
+            # ======================
+            # IMAGEN
+            # ======================
+
+            if (
+                artista_spotify is not None
+                and artista_spotify["imagen"] is not None
+            ):
+
+                st.image(
+                    artista_spotify["imagen"],
+                    width=130
+                )
 
 
-        st.write(
-            f"⭐ Afinidad: {afinidad_porcentaje[banda]}%"
-        )
-        
-        st.progress(
-            afinidad_porcentaje[banda] / 100
-        )
-
-        if banda in links_recomendaciones:
-
-            st.link_button(
-                "▶ Abrir en Spotify",
-                links_recomendaciones[banda]
-            )    
-
-        st.write(
-            "Recomendado por:"
-        )
-
-
-        for origen, peso in sorted(
-            motivos[banda],
-            key=lambda x: x[1],
-            reverse=True
-        )[:3]:
+            # ======================
+            # NOMBRE Y AFINIDAD
+            # ======================
 
             st.write(
-                f"• {origen} ({peso} canciones)"
+                f"**{banda}**"
             )
+
+            st.write(
+                f"⭐ Afinidad: "
+                f"{afinidad_porcentaje[banda]}%"
+            )
+
+            st.progress(
+                afinidad_porcentaje[banda] / 100
+            )
+
+
+            # ======================
+            # ESCUCHAR CANCIÓN
+            # ======================
+
+            if artista_spotify is not None:
+
+                cancion_preview = (
+                    buscar_cancion_representativa_spotify(
+                        artista_spotify["id"],
+                        banda
+                    )
+                )
+
+                if cancion_preview is not None:
+
+                    st.caption(
+                        f"🎵 {cancion_preview['nombre']}"
+                    )
+
+                    mostrar_reproductor = st.toggle(
+                        "▶ Escuchar",
+                        key=(
+                            f"escuchar_playlist_"
+                            f"{artista_spotify['id']}"
+                        )
+                    )
+
+                    if mostrar_reproductor:
+                        reproductor_fila = cancion_preview
+
+
+            # ======================
+            # ABRIR EN SPOTIFY
+            # ======================
+
+            if artista_spotify is not None:
+
+                st.link_button(
+                    "▶ Abrir en Spotify",
+                    artista_spotify["link"]
+                )
+
+
+            # ======================
+            # MOTIVOS
+            # ======================
+
+            st.write(
+                "Recomendado por:"
+            )
+
+            for origen, peso in sorted(
+                motivos[banda],
+                key=lambda x: x[1],
+                reverse=True
+            )[:3]:
+
+                st.write(
+                    f"• {origen} "
+                    f"({peso} canciones)"
+                )
+
+
+    # ======================
+    # REPRODUCTOR DE LA FILA
+    # ======================
+
+    if reproductor_fila is not None:
+
+        st.write(
+            f"🎵 **{reproductor_fila['nombre']}**"
+        )
+
+        components.iframe(
+            f"https://open.spotify.com/embed/track/"
+            f"{reproductor_fila['id']}",
+            height=152,
+            scrolling=False
+        )
+
 
 # ======================
 # CREAR PLAYLIST AUTOMÁTICA
