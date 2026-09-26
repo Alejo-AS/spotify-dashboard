@@ -386,6 +386,91 @@ if modo == "👤 Mi perfil musical":
 
 
     # ======================
+    # COMPARACIÓN TEMPORAL
+    # ======================
+
+    try:
+
+        artistas_short = obtener_top_artistas(
+            usuario["id"],
+            "short_term"
+        )
+
+        artistas_medium = obtener_top_artistas(
+            usuario["id"],
+            "medium_term"
+        )
+
+        artistas_long = obtener_top_artistas(
+            usuario["id"],
+            "long_term"
+        )
+
+    except SpotifyException as e:
+
+        if e.http_status == 429:
+
+            retry_after = e.headers.get("Retry-After") if e.headers else None
+
+            if retry_after:
+                minutos_espera = round(int(retry_after) / 60)
+
+                st.error(
+                    f"Spotify alcanzó temporalmente el límite de solicitudes. "
+                    f"Intentá nuevamente en aproximadamente {minutos_espera} minutos."
+                )
+            else:
+                st.error(
+                    "Spotify alcanzó temporalmente el límite de solicitudes."
+                )
+
+            st.stop()
+
+        else:
+            raise
+
+
+    nombres_short = {
+        artista["name"]
+        for artista in artistas_short
+    }
+
+    nombres_medium = {
+        artista["name"]
+        for artista in artistas_medium
+    }
+
+    nombres_long = {
+        artista["name"]
+        for artista in artistas_long
+    }
+
+
+    artistas_recientes = [
+        artista["name"]
+        for artista in artistas_short
+        if artista["name"] not in nombres_long
+    ]
+
+
+    artistas_constantes = [
+        artista["name"]
+        for artista in artistas_long
+        if (
+            artista["name"] in nombres_short
+            and artista["name"] in nombres_medium
+        )
+    ]
+
+
+    artistas_anteriores = [
+        artista["name"]
+        for artista in artistas_long
+        if artista["name"] not in nombres_short
+    ]
+
+
+    # ======================
     # DÉCADAS
     # ======================
 
@@ -444,6 +529,54 @@ if modo == "👤 Mi perfil musical":
             "📅 Década predominante",
             decada_principal
         )
+
+    # ======================
+    # EVOLUCIÓN DE GUSTOS
+    # ======================
+
+    st.subheader("📈 Evolución de tus gustos")
+
+    col_recientes, col_constantes, col_anteriores = st.columns(3)
+
+
+    with col_recientes:
+
+        st.write("### 🆕 Artistas recientes")
+
+        if artistas_recientes:
+
+            for artista in artistas_recientes[:8]:
+                st.write(f"• {artista}")
+
+        else:
+            st.write("No aparecen cambios destacados.")
+
+
+    with col_constantes:
+
+        st.write("### ❤️ Artistas constantes")
+
+        if artistas_constantes:
+
+            for artista in artistas_constantes[:8]:
+                st.write(f"• {artista}")
+
+        else:
+            st.write("No hay artistas presentes en los tres períodos.")
+
+
+    with col_anteriores:
+
+        st.write("### 🕰️ Etapa anterior")
+
+        if artistas_anteriores:
+
+            for artista in artistas_anteriores[:8]:
+                st.write(f"• {artista}")
+
+        else:
+            st.write("No aparecen cambios destacados.")
+
 
 
     # ======================
@@ -584,8 +717,8 @@ seleccion_playlist = st.selectbox(
 
 playlist_id = playlist_dict[seleccion_playlist]
 
-st.write("Playlist seleccionada:")
-st.write(seleccion_playlist)
+#st.write("Playlist seleccionada:")
+#st.write(seleccion_playlist)
 
 # ======================
 # CANCIONES SEGÚN PLAYLIST
@@ -646,10 +779,10 @@ except SpotifyException as e:
         raise
 
 
-st.write(
-    "Canciones cargadas:",
-    len(canciones)
-)
+#st.write(
+   # "Canciones cargadas:",
+    #len(canciones)
+#)
 
 # ======================
 # DURACIÓN TOTAL
