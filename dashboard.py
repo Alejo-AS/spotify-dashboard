@@ -705,7 +705,8 @@ if modo == "👤 Mi perfil musical":
     # MÉTRICAS
     # ======================
 
-    col1, col2, col3, col4 = st.columns(4)
+    # Primera fila
+    col1, col2 = st.columns(2)
 
     with col1:
         st.metric(
@@ -718,6 +719,10 @@ if modo == "👤 Mi perfil musical":
             "🎵 Canción principal",
             top_canciones_perfil[0]["name"]
         )
+
+
+    # Segunda fila
+    col3, col4 = st.columns(2)
 
     with col3:
         st.metric(
@@ -1567,6 +1572,10 @@ df_decadas = pd.DataFrame(
     columns=["Década", "Cantidad"]
 )
 
+df_decadas = df_decadas.sort_values(
+    "Década"
+)
+
 # ======================
 # MÉTRICAS PRINCIPALES
 # ======================
@@ -1574,8 +1583,8 @@ df_decadas = pd.DataFrame(
 artista_top = ranking.most_common(1)[0]
 
 
-col1, col2, col3, col4 = st.columns(4)
-
+# Primera fila
+col1, col2 = st.columns(2)
 
 with col1:
     st.metric(
@@ -1583,13 +1592,15 @@ with col1:
         len(canciones)
     )
 
-
 with col2:
     st.metric(
         "🎤 Artista principal",
         artista_top[0]
     )
 
+
+# Segunda fila
+col3, col4 = st.columns(2)
 
 with col3:
     st.metric(
@@ -1604,7 +1615,9 @@ with col4:
         f"{album_top[1]} canciones"
     )
 
-col5, col6, col7, col8 = st.columns(4)
+
+# Tercera fila
+col5, col6 = st.columns(2)
 
 with col5:
     st.metric(
@@ -1612,12 +1625,15 @@ with col5:
         cantidad_artistas
     )
 
-
 with col6:
     st.metric(
         "💿 Álbumes diferentes",
         cantidad_albumes
     )
+
+
+# Cuarta fila
+col7, col8 = st.columns(2)
 
 with col7:
     st.metric(
