@@ -15,6 +15,7 @@ import secrets
 import json
 from streamlit_cookies_manager import EncryptedCookieManager
 import time
+import unicodedata
 
 st.set_page_config(
     page_title="Spotify Dashboard",
@@ -313,6 +314,22 @@ periodo = opciones[seleccion]
 # PERFIL MUSICAL
 # ======================
 
+def normalizar_nombre(nombre):
+    nombre = unicodedata.normalize(
+        "NFKD",
+        nombre
+    )
+
+    nombre = "".join(
+        caracter
+        for caracter in nombre
+        if not unicodedata.combining(caracter)
+    )
+
+    return " ".join(
+        nombre.casefold().split()
+    )
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def obtener_top_artistas(usuario_id, periodo):
 
@@ -333,6 +350,190 @@ def obtener_top_canciones(usuario_id, periodo):
     )
 
     return resultado["items"]
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def obtener_similares_lastfm(artista):
+
+    parametros = {
+        "method": "artist.getsimilar",
+        "artist": artista,
+        "api_key": LASTFM_API_KEY,
+        "format": "json"
+    }
+
+    respuesta = requests.get(
+        "https://ws.audioscrobbler.com/2.0/",
+        params=parametros,
+        timeout=10
+    )
+
+    respuesta.raise_for_status()
+
+    datos = respuesta.json()
+
+    if "similarartists" in datos:
+        return datos["similarartists"]["artist"][:10]
+
+    return []
+
+@st.cache_data(ttl=604800, show_spinner=False)
+def buscar_spotify_por_mbid(mbid):
+
+    if not mbid:
+        return None
+
+    respuesta = requests.get(
+        f"https://musicbrainz.org/ws/2/artist/{mbid}",
+        params={
+            "inc": "url-rels",
+            "fmt": "json"
+        },
+        headers={
+            "User-Agent": (
+                "spotify-dashboard/1.0 "
+                "(https://github.com/Alejo-AS/spotify-dashboard)"
+            )
+        },
+        timeout=10
+    )
+
+    if respuesta.status_code != 200:
+        return None
+
+    datos = respuesta.json()
+
+    for relacion in datos.get("relations", []):
+
+        recurso = (
+            relacion
+            .get("url", {})
+            .get("resource", "")
+        )
+
+        if "open.spotify.com/artist/" in recurso:
+
+            spotify_id = (
+                recurso
+                .split("open.spotify.com/artist/", 1)[1]
+                .split("?", 1)[0]
+                .split("/", 1)[0]
+            )
+
+            artista = sp.artist(
+                spotify_id
+            )
+
+            imagen = None
+
+            if artista.get("images"):
+                imagen = artista["images"][0]["url"]
+
+            return {
+                "imagen": imagen,
+                "link": artista["external_urls"]["spotify"],
+                "id": artista["id"]
+            }
+
+    return None
+
+# ======================
+# OBTENER IMÁGENES DE BANDAS RECOMENDADAS
+# ======================
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def buscar_artista_spotify(banda, mbid=""):
+
+    # ======================
+    # 1. INTENTAR POR MBID
+    # ======================
+
+    if mbid:
+
+        artista_mbid = buscar_spotify_por_mbid(
+            mbid
+        )
+
+        if artista_mbid is not None:
+            return artista_mbid
+
+
+    # ======================
+    # 2. FALLBACK POR NOMBRE
+    # ======================
+
+    nombre_objetivo = normalizar_nombre(
+        banda
+    )
+
+    # Primera búsqueda: filtro específico por artista
+    resultado = sp.search(
+        q=f'artist:"{banda}"',
+        type="artist",
+        limit=10
+    )
+
+    candidatos = []
+    ids_encontrados = set()
+
+    for artista in resultado["artists"]["items"]:
+
+        if (
+            normalizar_nombre(artista["name"])
+            == nombre_objetivo
+            and artista["id"] not in ids_encontrados
+        ):
+
+            candidatos.append(artista)
+            ids_encontrados.add(artista["id"])
+
+
+    # Segunda búsqueda: nombre general
+    # Sirve para casos donde el filtro artist:
+    # no devuelve correctamente el perfil esperado.
+    resultado_general = sp.search(
+        q=banda,
+        type="artist",
+        limit=10
+    )
+
+    for artista in resultado_general["artists"]["items"]:
+
+        if (
+            normalizar_nombre(artista["name"])
+            == nombre_objetivo
+            and artista["id"] not in ids_encontrados
+        ):
+
+            candidatos.append(artista)
+            ids_encontrados.add(artista["id"])
+
+
+    if not candidatos:
+        return None
+
+
+    # Si hay una sola coincidencia exacta,
+    # usamos ese perfil.
+    if len(candidatos) == 1:
+
+        artista = candidatos[0]
+
+        imagen = None
+
+        if artista.get("images"):
+            imagen = artista["images"][0]["url"]
+
+        return {
+            "imagen": imagen,
+            "link": artista["external_urls"]["spotify"],
+            "id": artista["id"]
+        }
+
+
+    # Si hay varios artistas con exactamente
+    # el mismo nombre y el MBID no permitió
+    # resolverlo, preferimos no adivinar.
+    return None
 
 
 if modo == "👤 Mi perfil musical":
@@ -578,6 +779,238 @@ if modo == "👤 Mi perfil musical":
             st.write("No aparecen cambios destacados.")
 
 
+    # ======================
+    # RECOMENDACIONES SEGÚN EL PERFIL
+    # ======================
+
+    st.subheader("🎸 Recomendaciones según tu perfil")
+
+    recomendaciones_perfil = []
+
+    # Artistas que ya forman parte del Top del usuario
+    artistas_top_perfil = {
+        artista["name"].strip().casefold()
+        for artista in top_artistas_perfil
+    }
+
+
+    # Usamos los 10 artistas principales como origen
+    for posicion, artista in enumerate(
+        top_artistas_perfil[:10],
+        start=1
+    ):
+
+        nombre_artista = artista["name"]
+
+        # Cuanto más arriba está en el ranking,
+        # mayor peso tiene para las recomendaciones.
+        peso = 11 - posicion
+
+        bandas_similares = obtener_similares_lastfm(
+            nombre_artista
+        )
+
+        for banda in bandas_similares:
+
+            nombre_banda = banda["name"]
+
+            # Evitar recomendar artistas que ya están
+            # entre los principales del usuario
+            if nombre_banda.strip().casefold() not in artistas_top_perfil:
+
+                recomendaciones_perfil.append(
+                    {
+                        "banda": nombre_banda,
+                        "mbid": banda.get("mbid", ""),
+                        "origen": nombre_artista,
+                        "peso": peso
+                    }
+                )
+
+
+    # ======================
+    # CALCULAR AFINIDAD
+    # ======================
+
+    afinidad_perfil = Counter()
+
+    for recomendacion in recomendaciones_perfil:
+
+        afinidad_perfil[
+            recomendacion["banda"]
+        ] += recomendacion["peso"]
+
+
+    # ======================
+    # GUARDAR MBID DE CADA BANDA
+    # ======================
+
+    mbid_por_banda = {}
+
+    for recomendacion in recomendaciones_perfil:
+
+        if recomendacion.get("mbid"):
+
+            mbid_por_banda.setdefault(
+                recomendacion["banda"],
+                recomendacion["mbid"]
+            )
+
+    # ======================
+    # MOTIVOS
+    # ======================
+
+    motivos_perfil = {}
+
+    for recomendacion in recomendaciones_perfil:
+
+        banda = recomendacion["banda"]
+
+        if banda not in motivos_perfil:
+            motivos_perfil[banda] = []
+
+        motivos_perfil[banda].append(
+            (
+                recomendacion["origen"],
+                recomendacion["peso"]
+            )
+        )
+
+
+    # ======================
+    # MOSTRAR RECOMENDACIONES
+    # ======================
+
+    if afinidad_perfil:
+
+        max_afinidad_perfil = max(
+            afinidad_perfil.values()
+        )
+
+        top_recomendaciones_perfil = afinidad_perfil.most_common(10)
+
+        recomendaciones_visual = []
+
+        for banda, puntos in top_recomendaciones_perfil:
+
+            porcentaje = round(
+                (puntos / max_afinidad_perfil) * 100,
+                1
+            )
+
+            try:
+                artista_spotify = buscar_artista_spotify(
+                banda,
+                mbid_por_banda.get(banda, "")
+            )
+
+            except SpotifyException as e:
+
+                if e.http_status == 429:
+
+                    retry_after = e.headers.get("Retry-After") if e.headers else None
+
+                    if retry_after:
+                        minutos_espera = round(
+                            int(retry_after) / 60
+                        )
+
+                        st.error(
+                            f"Spotify alcanzó temporalmente el límite de solicitudes. "
+                            f"Intentá nuevamente en aproximadamente "
+                            f"{minutos_espera} minutos."
+                        )
+                    else:
+                        st.error(
+                            "Spotify alcanzó temporalmente el límite de solicitudes."
+                        )
+
+                    st.stop()
+
+                else:
+                    raise
+
+            recomendaciones_visual.append(
+                {
+                    "banda": banda,
+                    "porcentaje": porcentaje,
+                    "spotify": artista_spotify
+                }
+            )
+
+
+        for inicio in range(
+            0,
+            len(recomendaciones_visual),
+            5
+        ):
+
+            grupo = recomendaciones_visual[
+                inicio:inicio + 5
+            ]
+
+            columnas = st.columns(5)
+
+            for columna, recomendacion in zip(
+                columnas,
+                grupo
+            ):
+
+                banda = recomendacion["banda"]
+                porcentaje = recomendacion["porcentaje"]
+                artista_spotify = recomendacion["spotify"]
+
+                with columna:
+
+                    if (
+                        artista_spotify is not None
+                        and artista_spotify["imagen"] is not None
+                    ):
+
+                        st.image(
+                            artista_spotify["imagen"],
+                            width=130
+                        )
+
+                    st.write(
+                        f"**{banda}**"
+                    )
+
+                    st.write(
+                        f"⭐ Afinidad: {porcentaje}%"
+                    )
+
+                    st.progress(
+                        porcentaje / 100
+                    )
+
+                    if artista_spotify is not None:
+
+                        st.link_button(
+                            "▶ Abrir en Spotify",
+                            artista_spotify["link"]
+                        )
+
+                    st.write(
+                        "Recomendado por:"
+                    )
+
+                    for origen, peso in sorted(
+                        motivos_perfil[banda],
+                        key=lambda x: x[1],
+                        reverse=True
+                    )[:3]:
+
+                        st.write(
+                            f"• {origen}"
+                        )
+
+    else:
+
+        st.info(
+            "No se encontraron recomendaciones suficientes "
+            "para este período."
+        )
 
     # ======================
     # TOP ARTISTAS
@@ -867,6 +1300,7 @@ for artista in top_artistas:
             recomendaciones.append(
                 {
                     "banda": nombre,
+                    "mbid": banda.get("mbid", ""),
                     "origen": artista,
                     "peso": ranking[artista]
                 }
@@ -880,6 +1314,22 @@ for recomendacion in recomendaciones:
     afinidad[
         recomendacion["banda"]
     ] += recomendacion["peso"]
+
+# ======================
+# GUARDAR MBID DE CADA BANDA
+# ======================
+
+mbid_por_banda_playlist = {}
+
+for recomendacion in recomendaciones:
+
+    if recomendacion.get("mbid"):
+
+        mbid_por_banda_playlist.setdefault(
+            recomendacion["banda"],
+            recomendacion["mbid"]
+        )
+
 
 # ======================
 # PORCENTAJE DE AFINIDAD
@@ -1318,41 +1768,6 @@ for columna, (album, cantidad) in zip(columnas, top_albumes):
         )
 
 
-# ======================
-# OBTENER IMÁGENES DE BANDAS RECOMENDADAS
-# ======================
-
-@st.cache_data(ttl=86400, show_spinner=False)
-def buscar_artista_spotify(banda):
-
-    resultado = sp.search(
-        q=f"artist:{banda}",
-        type="artist",
-        limit=10
-    )
-
-    artistas_encontrados = resultado["artists"]["items"]
-
-    for artista in artistas_encontrados:
-
-        # Verificación exacta para evitar confundir artistas
-        if artista["name"].lower() == banda.lower():
-
-            imagen = None
-
-            if artista["images"]:
-                imagen = artista["images"][0]["url"]
-
-            link = artista["external_urls"]["spotify"]
-
-            return {
-                "imagen": imagen,
-                "link": link
-            }
-
-    return None
-
-
 imagenes_recomendaciones = {}
 links_recomendaciones = {}
 
@@ -1360,7 +1775,10 @@ links_recomendaciones = {}
 for banda, puntos in afinidad.most_common(10):
 
     try:
-        artista_spotify = buscar_artista_spotify(banda)
+        artista_spotify = buscar_artista_spotify(
+        banda,
+        mbid_por_banda_playlist.get(banda, "")
+    )
 
     except SpotifyException as e:
 
